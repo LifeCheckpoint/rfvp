@@ -67,9 +67,14 @@ fn opcode(k: &OpKind) -> u8 {
         OpKind::SetE => 0x22,
         OpKind::SetNe => 0x23,
         OpKind::SetG => 0x24,
-        OpKind::SetLe => 0x25,
+        // RFVP/HCB's historical enum names are swapped for these two opcodes:
+        //   0x25 (Opcode::SetLE) executes a >= b
+        //   0x27 (Opcode::SetGE) executes a <= b
+        // OpKind names represent source-language semantics, so encode them by
+        // behavior rather than by the legacy enum spelling.
+        OpKind::SetLe => 0x27,
         OpKind::SetL => 0x26,
-        OpKind::SetGe => 0x27,
+        OpKind::SetGe => 0x25,
     }
 }
 
@@ -277,4 +282,19 @@ pub fn build_sysdesc(meta: &Meta, entry_point: u32) -> Result<Vec<u8>> {
     buf.extend_from_slice(&meta.custom_syscall_count.to_le_bytes());
 
     Ok(buf)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::opcode;
+    use crate::ir::OpKind;
+
+    #[test]
+    fn comparison_opcodes_follow_rfvp_engine_semantics() {
+        assert_eq!(opcode(&OpKind::SetG), 0x24);
+        assert_eq!(opcode(&OpKind::SetGe), 0x25);
+        assert_eq!(opcode(&OpKind::SetL), 0x26);
+        assert_eq!(opcode(&OpKind::SetLe), 0x27);
+    }
 }
