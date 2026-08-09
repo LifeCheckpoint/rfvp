@@ -114,12 +114,23 @@ fn slot_to_stack_idx(var: &str, args_count: i8) -> Result<i8> {
 
     if let Some(c) = re_a.captures(var) {
         let v: i16 = c.get(1).unwrap().as_str().parse()?;
-        return Ok(i8::try_from(v).map_err(|_| anyhow!("stack index out of i8"))?);
+        let argc = i16::from(args_count);
+        if v >= argc {
+            bail!("argument index out of range: {var} for {args_count} args");
+        }
+        // RFVP Context::call pushes the arguments first and then a
+        // SavedStackInfo frame.  The callee base points immediately after
+        // that frame, so -1 is the frame itself, the last argument is -2,
+        // and a0 is -(args_count + 1).
+        let idx = v - argc - 1;
+        return Ok(i8::try_from(idx).map_err(|_| anyhow!("stack index out of i8"))?);
     }
     if let Some(c) = re_l.captures(var) {
         let v: i16 = c.get(1).unwrap().as_str().parse()?;
-        let idx: i16 = i16::from(args_count) + v;
-        return Ok(i8::try_from(idx).map_err(|_| anyhow!("stack index out of i8"))?);
+        // InitStack allocates locals starting exactly at the callee base.
+        // Arguments live below the SavedStackInfo frame and therefore do not
+        // shift local-variable offsets.
+        return Ok(i8::try_from(v).map_err(|_| anyhow!("stack index out of i8"))?);
     }
     bail!("not a frame slot: {var}")
 }
@@ -1525,4 +1536,23 @@ pub fn compile_program(meta: &Meta, program: &Program) -> Result<(Vec<Item>, Glo
     }
 
     Ok((items, layout))
+}
+
+#[cfg(test)]
+mod frame_slot_tests {
+    use super::slot_to_stack_idx;
+
+    #[test]
+    fn rfvp_call_frame_argument_and_local_offsets() {
+        assert_eq!(slot_to_stack_idx("a0", 1).unwrap(), -2);
+        assert_eq!(slot_to_stack_idx("l0", 1).unwrap(), 0);
+
+        assert_eq!(slot_to_stack_idx("a0", 3).unwrap(), -4);
+        assert_eq!(slot_to_stack_idx("a1", 3).unwrap(), -3);
+        assert_eq!(slot_to_stack_idx("a2", 3).unwrap(), -2);
+        assert_eq!(slot_to_stack_idx("l0", 3).unwrap(), 0);
+        assert_eq!(slot_to_stack_idx("l3", 3).unwrap(), 3);
+
+        assert!(slot_to_stack_idx("a1", 1).is_err());
+    }
 }
