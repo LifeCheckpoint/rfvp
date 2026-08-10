@@ -1,0 +1,421 @@
+-- RV32IM architectural helpers for the build-time AOT Doom guest.
+-- Original Doom C is compiled to RV32IM; tools/rv32_aot.py translates each
+-- machine-code basic block into HCB functions that use these register/memory/
+-- arithmetic helpers. No Doom gameplay algorithm is reimplemented here.
+--
+-- GT[800] = 32 integer registers x0..x31
+-- GT[801] = sparse 32-bit little-endian memory words, keyed by byte_address/4
+-- GT[802] = optional per-word write-dirty marker
+-- g100 = pc, g101 = running, g102 = trap code, g103 = exit code
+-- g104 = retired instruction count (wrapping i32), g105 = yield request
+-- g106 = framebuffer base, g107 = framebuffer bytes (normally 4000)
+-- g108 = input state, g109 = host tick, g110 = entry point
+
+function rv_reg_read(a0)
+  if a0 == 0 then
+    return 0
+  end
+  if GT[800][a0] == nil then
+    return 0
+  end
+  return GT[800][a0]
+end
+
+function rv_reg_write(a0, a1)
+  if a0 ~= 0 then
+    GT[800][a0] = a1
+  end
+  return
+end
+
+function rv_bits(a0, a1, a2)
+  local l0
+  local l1
+  local l2
+  local l3
+  l0 = 0
+  l1 = 0
+  l2 = 1
+  while l1 < a2 do
+    l3 = a1 + l1
+    if (a0 & l3) ~= 0 then
+      l0 = l0 + l2
+    end
+    l2 = l2 + l2
+    l1 = l1 + 1
+  end
+  return l0
+end
+
+function rv_sign_extend(a0, a1)
+  local l0
+  local l1
+  l0 = a1 - 1
+  if (a0 & l0) ~= 0 then
+    l1 = doom_shl32(1, a1)
+    return a0 - l1
+  end
+  return a0
+end
+
+function rv_mem_word(a0)
+  local l0
+  l0 = a0 / 4
+  if GT[801][l0] == nil then
+    return 0
+  end
+  return GT[801][l0]
+end
+
+function rv_mem_set_word(a0, a1)
+  local l0
+  l0 = a0 / 4
+  GT[801][l0] = a1
+  GT[802][l0] = 1
+  return
+end
+
+function rv_load_u8(a0)
+  local l0
+  local l1
+  l0 = a0 - a0 % 4
+  l1 = a0 % 4
+  return rv_bits(rv_mem_word(l0), l1 * 8, 8)
+end
+
+function rv_load_i8(a0)
+  return rv_sign_extend(rv_load_u8(a0), 8)
+end
+
+function rv_load_u16(a0)
+  local l0
+  l0 = rv_load_u8(a0)
+  return l0 + rv_load_u8(a0 + 1) * 256
+end
+
+function rv_load_i16(a0)
+  return rv_sign_extend(rv_load_u16(a0), 16)
+end
+
+function rv_load_i32(a0)
+  local l0
+  local l1
+  local l2
+  local l3
+  if a0 % 4 == 0 then
+    return rv_mem_word(a0)
+  end
+  l0 = rv_load_u8(a0)
+  l1 = rv_load_u8(a0 + 1)
+  l2 = rv_load_u8(a0 + 2)
+  l3 = rv_load_u8(a0 + 3)
+  return l0 + l1 * 256 + l2 * 65536 + doom_shl32(l3, 24)
+end
+
+function rv_store_u8(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  l0 = a0 - a0 % 4
+  l1 = a0 % 4
+  l2 = rv_mem_word(l0)
+  l3 = doom_shl32(255, l1 * 8)
+  l4 = doom_band32(l2, doom_bnot32(l3))
+  l3 = doom_shl32(doom_u8(a1), l1 * 8)
+  rv_mem_set_word(l0, doom_bor32(l4, l3))
+  return
+end
+
+function rv_store_u16(a0, a1)
+  rv_store_u8(a0, a1)
+  rv_store_u8(a0 + 1, doom_shr_u32(a1, 8))
+  return
+end
+
+function rv_store_u32(a0, a1)
+  if a0 % 4 == 0 then
+    rv_mem_set_word(a0, a1)
+    return
+  end
+  rv_store_u8(a0, a1)
+  rv_store_u8(a0 + 1, doom_shr_u32(a1, 8))
+  rv_store_u8(a0 + 2, doom_shr_u32(a1, 16))
+  rv_store_u8(a0 + 3, doom_shr_u32(a1, 24))
+  return
+end
+
+function rv_imm_i(a0)
+  return rv_sign_extend(rv_bits(a0, 20, 12), 12)
+end
+
+function rv_imm_s(a0)
+  local l0
+  l0 = rv_bits(a0, 7, 5) + rv_bits(a0, 25, 7) * 32
+  return rv_sign_extend(l0, 12)
+end
+
+function rv_imm_b(a0)
+  local l0
+  l0 = rv_bits(a0, 8, 4) * 2
+  l0 = l0 + rv_bits(a0, 25, 6) * 32
+  l0 = l0 + rv_bits(a0, 7, 1) * 2048
+  l0 = l0 + rv_bits(a0, 31, 1) * 4096
+  return rv_sign_extend(l0, 13)
+end
+
+function rv_imm_u(a0)
+  return doom_shl32(rv_bits(a0, 12, 20), 12)
+end
+
+function rv_imm_j(a0)
+  local l0
+  l0 = rv_bits(a0, 21, 10) * 2
+  l0 = l0 + rv_bits(a0, 20, 1) * 2048
+  l0 = l0 + rv_bits(a0, 12, 8) * 4096
+  l0 = l0 + rv_bits(a0, 31, 1) * 1048576
+  return rv_sign_extend(l0, 21)
+end
+
+function rv_slt(a0, a1)
+  if a0 < a1 then
+    return 1
+  end
+  return 0
+end
+
+function rv_sltu(a0, a1)
+  if doom_u32_lt(a0, a1) ~= 0 then
+    return 1
+  end
+  return 0
+end
+
+function rv_mulhu(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  local l5
+  local l6
+  local l7
+  local l8
+  local l9
+  local l10
+  local l11
+  local l12
+  local l13
+  local l14
+  local l15
+  -- Base-256 schoolbook multiply. Every intermediate stays well below i32
+  -- overflow; bytes 4..7 are the architectural high 32 bits.
+  l0 = rv_bits(a0, 0, 8)
+  l1 = rv_bits(a0, 8, 8)
+  l2 = rv_bits(a0, 16, 8)
+  l3 = rv_bits(a0, 24, 8)
+  l4 = rv_bits(a1, 0, 8)
+  l5 = rv_bits(a1, 8, 8)
+  l6 = rv_bits(a1, 16, 8)
+  l7 = rv_bits(a1, 24, 8)
+
+  l8 = l0 * l4
+  l9 = l8 / 256
+  l8 = l0 * l5 + l1 * l4 + l9
+  l9 = l8 / 256
+  l8 = l0 * l6 + l1 * l5 + l2 * l4 + l9
+  l9 = l8 / 256
+  l8 = l0 * l7 + l1 * l6 + l2 * l5 + l3 * l4 + l9
+  l9 = l8 / 256
+
+  l10 = l1 * l7 + l2 * l6 + l3 * l5 + l9
+  l11 = l10 % 256
+  l9 = l10 / 256
+  l10 = l2 * l7 + l3 * l6 + l9
+  l12 = l10 % 256
+  l9 = l10 / 256
+  l10 = l3 * l7 + l9
+  l13 = l10 % 256
+  l14 = l10 / 256
+  l15 = l11 + l12 * 256 + l13 * 65536 + doom_shl32(l14 % 256, 24)
+  return l15
+end
+
+function rv_mulh_signed(a0, a1)
+  local l0
+  l0 = rv_mulhu(a0, a1)
+  if a0 < 0 then
+    l0 = l0 - a1
+  end
+  if a1 < 0 then
+    l0 = l0 - a0
+  end
+  return l0
+end
+
+function rv_mulhsu(a0, a1)
+  local l0
+  l0 = rv_mulhu(a0, a1)
+  if a0 < 0 then
+    l0 = l0 - a1
+  end
+  return l0
+end
+
+function rv_div(a0, a1)
+  if a1 == 0 then
+    return -1
+  end
+  if a0 == -2147483648 then
+    if a1 == -1 then
+      return -2147483648
+    end
+  end
+  return a0 / a1
+end
+
+function rv_rem(a0, a1)
+  if a1 == 0 then
+    return a0
+  end
+  if a0 == -2147483648 then
+    if a1 == -1 then
+      return 0
+    end
+  end
+  return a0 % a1
+end
+
+
+function rv_divu(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  if a1 == 0 then
+    return -1
+  end
+  l0 = 0
+  l1 = 0
+  l2 = 31
+  while l2 >= 0 do
+    l0 = doom_shl32(l0, 1)
+    if (a0 & l2) ~= 0 then
+      l0 = doom_bor32(l0, 1)
+    end
+    if doom_u32_lt(l0, a1) == 0 then
+      l0 = l0 - a1
+      l3 = doom_shl32(1, l2)
+      l1 = doom_bor32(l1, l3)
+    end
+    l2 = l2 - 1
+  end
+  return l1
+end
+
+function rv_remu(a0, a1)
+  local l0
+  local l1
+  if a1 == 0 then
+    return a0
+  end
+  l0 = 0
+  l1 = 31
+  while l1 >= 0 do
+    l0 = doom_shl32(l0, 1)
+    if (a0 & l1) ~= 0 then
+      l0 = doom_bor32(l0, 1)
+    end
+    if doom_u32_lt(l0, a1) == 0 then
+      l0 = l0 - a1
+    end
+    l1 = l1 - 1
+  end
+  return l0
+end
+
+function rv_ecall()
+  local l0
+  local l1
+  local l2
+  local l3
+  l0 = rv_reg_read(17)
+  if l0 == 1 then
+    g126 = g126 + 1
+    if g126 == 1 then
+      Debmess("DOOM first present pc", g100)
+      Debmess("DOOM first present retired", g104)
+    end
+    doom_host_present()
+    g105 = 1
+    rv_reg_write(10, doom_host_input_state())
+    return
+  elseif l0 == 2 then
+    g103 = rv_reg_read(10)
+    l1 = rv_reg_read(11)
+    l2 = rv_reg_read(12)
+    l3 = rv_reg_read(13)
+    Debmess("DOOM guest exit caller ra", rv_reg_read(1))
+    Debmess("DOOM guest exit sp", rv_reg_read(2))
+    Debmess("DOOM guest exit detail kind", l1)
+    Debmess("DOOM guest exit detail word0", l2)
+    Debmess("DOOM guest exit detail word1", l3)
+    g101 = 0
+    return
+  elseif l0 == 3 then
+    g129 = g129 + 1
+    if g129 == 1 then
+      Debmess("DOOM first timer pc", g100)
+    end
+    rv_reg_write(10, doom_host_millis())
+    return
+  elseif l0 == 4 then
+    g130 = g130 + 1
+    if g130 == 1 then
+      Debmess("DOOM first input pc", g100)
+    end
+    rv_reg_write(10, doom_host_input_state())
+    return
+  elseif l0 == 5 then
+    g127 = g127 + 1
+    if g127 == 1 then
+      Debmess("DOOM first palette pc", g100)
+      Debmess("DOOM first palette retired", g104)
+    end
+    doom_host_palette_sync()
+    return
+  elseif l0 == 6 then
+    g128 = g128 + 1
+    if g128 == 1 then
+      Debmess("DOOM first WAD read pc", g100)
+      Debmess("DOOM first WAD offset", rv_reg_read(10))
+      Debmess("DOOM first WAD length", rv_reg_read(12))
+    end
+    -- IWAD bytes come from HCB-embedded ROM generated at build time.
+    rv_reg_write(10, doom_wad_read_to_guest(rv_reg_read(10), rv_reg_read(11), rv_reg_read(12)))
+    return
+  end
+  g102 = 9001
+  g101 = 0
+  return
+end
+
+
+function rv_reset()
+  local l0
+  l0 = 0
+  while l0 < 32 do
+    GT[800][l0] = 0
+    l0 = l0 + 1
+  end
+  g100 = g110
+  g101 = 1
+  g102 = 0
+  g103 = 0
+  g104 = 0
+  g105 = 0
+  -- Stack top is supplied by the ELF image generator.
+  GT[800][2] = g115
+  return
+end

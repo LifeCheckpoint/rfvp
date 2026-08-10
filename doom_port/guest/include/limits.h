@@ -1,0 +1,7 @@
+#ifndef HCB_LIMITS_H
+#define HCB_LIMITS_H
+#define CHAR_BIT 8
+#define INT_MAX 2147483647
+#define INT_MIN (-2147483647-1)
+#define UINT_MAX 4294967295U
+#endif

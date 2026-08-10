@@ -1,0 +1,131 @@
+-- Direct 2-counter Minsky-machine simulator for the *abstract* HCB model.
+--
+-- This is deliberately independent of the Doom/RV32 host I/O.  Counters are
+-- represented as little-endian base-10000 digit arrays, so their source-level
+-- semantics are not bounded by HCB's signed i32 arithmetic.  On the concrete
+-- RFVP VM, table keys and available memory are finite; therefore this file is
+-- evidence for the standard unbounded-resource abstraction, not a claim that
+-- a physical RFVP process has literally infinite storage.
+--
+-- GT[900], GT[901] = counter 0 / counter 1 digits
+-- GT[902] = instruction opcode: 0 HALT, 1 INC, 2 DECJZ
+-- GT[903] = selected counter (0/1)
+-- GT[904] = target for INC/nonzero branch
+-- GT[905] = zero target for DECJZ
+-- g200 = program counter
+-- g201 = halted
+
+function mm_digit_get(a0, a1)
+  if a0 == 0 then
+    if GT[900][a1] == nil then
+      return 0
+    end
+    return GT[900][a1]
+  end
+  if GT[901][a1] == nil then
+    return 0
+  end
+  return GT[901][a1]
+end
+
+function mm_digit_set(a0, a1, a2)
+  if a0 == 0 then
+    GT[900][a1] = a2
+  else
+    GT[901][a1] = a2
+  end
+  return
+end
+
+function mm_is_zero(a0)
+  -- Length is stored at digit key 2147483647. The abstract semantics permits
+  -- arbitrarily many finite keys; the concrete VM of course has finite limits.
+  local l0
+  l0 = mm_digit_get(a0, 2147483647)
+  if l0 == 0 then
+    return 1
+  end
+  return 0
+end
+
+function mm_inc(a0)
+  local l0
+  local l1
+  local l2
+  l0 = mm_digit_get(a0, 2147483647)
+  l1 = 0
+  while l1 < l0 do
+    l2 = mm_digit_get(a0, l1) + 1
+    if l2 < 10000 then
+      mm_digit_set(a0, l1, l2)
+      return
+    end
+    mm_digit_set(a0, l1, 0)
+    l1 = l1 + 1
+  end
+  mm_digit_set(a0, l0, 1)
+  mm_digit_set(a0, 2147483647, l0 + 1)
+  return
+end
+
+function mm_dec(a0)
+  local l0
+  local l1
+  local l2
+  l0 = mm_digit_get(a0, 2147483647)
+  if l0 == 0 then
+    return 0
+  end
+  l1 = 0
+  while l1 < l0 do
+    l2 = mm_digit_get(a0, l1)
+    if l2 > 0 then
+      mm_digit_set(a0, l1, l2 - 1)
+      if l1 == l0 - 1 then
+        if l2 == 1 then
+          while l0 > 0 do
+            if mm_digit_get(a0, l0 - 1) ~= 0 then
+              break
+            end
+            l0 = l0 - 1
+          end
+          mm_digit_set(a0, 2147483647, l0)
+        end
+      end
+      return 1
+    end
+    mm_digit_set(a0, l1, 9999)
+    l1 = l1 + 1
+  end
+  return 0
+end
+
+function mm_step()
+  local l0
+  local l1
+  l0 = GT[902][g200]
+  if l0 == nil then
+    g201 = 1
+    return
+  end
+  if l0 == 0 then
+    g201 = 1
+    return
+  elseif l0 == 1 then
+    l1 = GT[903][g200]
+    mm_inc(l1)
+    g200 = GT[904][g200]
+    return
+  elseif l0 == 2 then
+    l1 = GT[903][g200]
+    if mm_is_zero(l1) ~= 0 then
+      g200 = GT[905][g200]
+    else
+      mm_dec(l1)
+      g200 = GT[904][g200]
+    end
+    return
+  end
+  g201 = 1
+  return
+end

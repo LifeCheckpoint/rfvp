@@ -1,0 +1,173 @@
+-- Zero-RFVP-patch host bridge for the RV32IM Doom guest.
+-- Uses only RFVP syscalls that already existed before this experiment:
+-- InputGetState/InputGetWheel, TimerGet/TimerSet, ColorSet, PrimSetTile,
+-- PrimGroupIn, PrimExitGroup, Debmess and ThreadNext. The IWAD is compiled
+-- into HCB code by wad2luax.py.
+--
+-- RFVP's script scheduler is explicitly cooperative.  The main HCB context
+-- therefore never returns: one permanent loop advances a bounded amount of
+-- host/guest work and calls ThreadNext() exactly once per scheduler turn.
+-- g121 = host boot/run phase
+-- g122 = next framebuffer primitive to create (0..4000)
+-- g123 = generated guest-image initialization chunk index
+-- g124 = guest-stop diagnostic already emitted
+-- g125 = guest scheduler turns since entry
+-- g126 = present ECALL count
+-- g127 = palette ECALL count
+-- g128 = WAD-read ECALL count
+-- g129 = timer ECALL count
+-- g130 = input ECALL count
+-- g131 = boot marker removed
+
+function doom_host_input_state()
+  return InputGetState()
+end
+
+function doom_host_millis()
+  return TimerGet(15, 1000)
+end
+
+function doom_host_palette_sync()
+  local l0
+  local l1
+  local l2
+  local l3
+  l0 = 0
+  while l0 < 256 do
+    l1 = rv_load_u8(g113 + l0 * 3)
+    l2 = rv_load_u8(g113 + l0 * 3 + 1)
+    l3 = rv_load_u8(g113 + l0 * 3 + 2)
+    ColorSet(l0, l1, l2, l3, 255)
+    l0 = l0 + 1
+  end
+  return
+end
+
+-- Create one 80-pixel scanline per scheduler turn.  Returning 1 means that
+-- all 4000 framebuffer primitives now exist under RFVP's native root 0.
+function doom_host_video_init_step()
+  local l0
+  local l1
+  local l2
+  local l3
+  if g122 >= 4000 then
+    return 1
+  end
+  l3 = g122 + 80
+  if l3 > 4000 then
+    l3 = 4000
+  end
+  l0 = g122
+  while l0 < l3 do
+    l1 = l0 % 80
+    l2 = l0 / 80
+    PrimSetTile(l0 + 1, 0, 32 + l1 * 12, 20 + l2 * 12, 12, 12)
+    PrimGroupIn(l0 + 1, 0)
+    GT[851][l0] = -1
+    l0 = l0 + 1
+  end
+  g122 = l3
+  if g122 >= 4000 then
+    -- Temporary host-only boot marker.  It proves the RFVP primitive path is
+    -- visible before Doom produces its first frame.  doom_host_present()
+    -- removes it on the first real guest present.
+    ColorSet(254, 255, 0, 255, 255)
+    PrimSetTile(4001, 254, 32, 20, 96, 24)
+    PrimGroupIn(4001, 0)
+    PrimExitGroup(0)
+    return 1
+  end
+  return 0
+end
+
+function doom_host_present()
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  if g131 == 0 then
+    PrimGroupOut(4001)
+    g131 = 1
+  end
+  l0 = 0
+  while l0 < g107 do
+    l1 = rv_load_u8(g106 + l0)
+    if GT[851][l0] ~= l1 then
+      l2 = l0 % 80
+      l3 = l0 / 80
+      l4 = l0 + 1
+      PrimSetTile(l4, l1, 32 + l2 * 12, 20 + l3 * 12, 12, 12)
+      GT[851][l0] = l1
+    end
+    l0 = l0 + 1
+    -- A first Doom frame can touch almost all 4000 tiles.  Do not monopolize
+    -- the cooperative VM while copying it to RFVP primitives.
+    if l0 % 400 == 0 then
+      ThreadNext()
+    end
+  end
+  return
+end
+
+-- This is intentionally the only persistent top-level scheduler loop.  It
+-- never returns, including after a guest trap/exit, so RFVP continues to
+-- service rendering, input and the F2 debug HUD.
+function doom_host_main_loop()
+  TimerSet(15, 1000)
+  g121 = 0
+  g122 = 0
+  g123 = 0
+  g124 = 0
+  g125 = 0
+  g126 = 0
+  g127 = 0
+  g128 = 0
+  g129 = 0
+  g130 = 0
+  g131 = 0
+  Debmess("DOOM host boot phase", g121)
+
+  while true do
+    if g121 == 0 then
+      if doom_host_video_init_step() ~= 0 then
+        g121 = 1
+        Debmess("DOOM framebuffer primitives ready", g122)
+      end
+    elseif g121 == 1 then
+      if doom_guest_image_init_step() ~= 0 then
+        g121 = 2
+        Debmess("DOOM RV32 image ready", g123)
+      end
+    elseif g121 == 2 then
+      doom_wad_init()
+      rv_reset()
+      g121 = 3
+      Debmess("DOOM guest entry pc", g100)
+    elseif g121 == 3 then
+      if g101 ~= 0 then
+        -- Bound guest execution between explicit RFVP scheduling points.
+        -- ECALL-based present/input/timer operations may return even earlier.
+        rv_aot_run_slice(128)
+        g125 = g125 + 1
+        if g125 % 120 == 0 then
+          Debmess("DOOM guest progress pc", g100)
+          Debmess("DOOM guest retired", g104)
+          Debmess("DOOM guest presents", g126)
+        end
+      else
+        g121 = 4
+      end
+    else
+      if g124 == 0 then
+        Debmess("DOOM guest stopped pc", g100)
+        Debmess("DOOM guest trap", g102)
+        Debmess("DOOM guest exit", g103)
+        Debmess("DOOM retired instructions", g104)
+        g124 = 1
+      end
+    end
+
+    ThreadNext()
+  end
+end

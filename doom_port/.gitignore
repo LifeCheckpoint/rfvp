@@ -1,0 +1,32 @@
+# Build products
+/build/
+/generated/
+
+# Standalone compiler/linker products, if emitted outside the standard dirs
+*.o
+*.obj
+*.elf
+*.hcb
+*.dSYM/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local IWADs. Keep the acquisition script/source metadata, not game data.
+/wad/*.wad
+/wad/*.WAD
+/wad/*.zip
+/wad/*.ZIP
+
+# OS/editor noise
+.DS_Store
+__MACOSX/
+*~
+*.swp
+*.swo
+
+# Local logs / scratch outputs
+*.log
+*.tmp

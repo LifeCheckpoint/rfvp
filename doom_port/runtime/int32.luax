@@ -1,0 +1,439 @@
+-- HCB compatibility layer for the 32-bit integer operations used by linuxdoom-1.10.
+-- All values are represented as signed two's-complement i32 because that is RFVP HCB's Int type.
+
+function doom_u8(a0)
+  local l0
+  l0 = a0 % 256
+  if l0 < 0 then
+    l0 = l0 + 256
+  end
+  return l0
+end
+
+function doom_floor_div_65536(a0)
+  local l0
+  local l1
+  l0 = a0 / 65536
+  l1 = a0 % 65536
+  if l1 < 0 then
+    l0 = l0 - 1
+  end
+  return l0
+end
+
+function doom_floor_mod_65536(a0)
+  local l0
+  l0 = a0 % 65536
+  if l0 < 0 then
+    l0 = l0 + 65536
+  end
+  return l0
+end
+
+-- floor((a*b)/65536) for 0 <= a,b < 65536 without overflowing i32.
+function doom_u16_product_hi(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  local l5
+  local l6
+  l0 = a0 / 256
+  l1 = a0 % 256
+  l2 = a1 / 256
+  l3 = a1 % 256
+  l4 = l0 * l3 + l1 * l2
+  l5 = l1 * l3 / 256
+  l6 = l0 * l2 + (l4 + l5) / 256
+  return l6
+end
+
+-- Equivalent to linuxdoom FixedMul's ((int64)a * (int64)b) >> 16, with the
+-- final result reduced to the HCB i32 representation.  The decomposition avoids
+-- relying on a 64-bit HCB integer type.
+function doom_fixed_mul(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  local l5
+  local l6
+  l0 = doom_floor_div_65536(a0)
+  l1 = doom_floor_mod_65536(a0)
+  l2 = doom_floor_div_65536(a1)
+  l3 = doom_floor_mod_65536(a1)
+  l4 = l0 * l2
+  l4 = l4 * 65536
+  l5 = l0 * l3 + l1 * l2
+  l6 = doom_u16_product_hi(l1, l3)
+  return l4 + l5 + l6
+end
+
+-- One arithmetic right shift with two's-complement signed semantics.
+function doom_sar1(a0)
+  local l0
+  local l1
+  l0 = a0 / 2
+  if a0 < 0 then
+    l1 = a0 % 2
+    if l1 ~= 0 then
+      l0 = l0 - 1
+    end
+  end
+  return l0
+end
+
+function doom_sar32(a0, a1)
+  local l0
+  local l1
+  l0 = a0
+  l1 = a1
+  while l1 > 0 do
+    l0 = doom_sar1(l0)
+    l1 = l1 - 1
+  end
+  return l0
+end
+
+-- One logical right shift.  For a negative signed representation, the result
+-- is reconstructed without ever materializing +2^31 as an HCB integer.
+function doom_shr1_u32(a0)
+  local l0
+  local l1
+  if a0 >= 0 then
+    return a0 / 2
+  end
+  l0 = a0 / 2
+  l1 = a0 % 2
+  if l1 ~= 0 then
+    l0 = l0 - 1
+  end
+  l0 = 1073741824 + l0
+  return 1073741824 + l0
+end
+
+function doom_shr_u32(a0, a1)
+  local l0
+  local l1
+  l0 = a0
+  l1 = a1
+  while l1 > 0 do
+    l0 = doom_shr1_u32(l0)
+    l1 = l1 - 1
+  end
+  return l0
+end
+
+function doom_shl32(a0, a1)
+  local l0
+  local l1
+  l0 = a0
+  l1 = a1
+  while l1 > 0 do
+    l0 = l0 + l0
+    l1 = l1 - 1
+  end
+  return l0
+end
+
+function doom_bnot32(a0)
+  return -1 - a0
+end
+
+function doom_band32(a0, a1)
+  local l0
+  local l1
+  local l2
+  l0 = 0
+  l1 = 0
+  l2 = 1
+  while l1 < 31 do
+    if (a0 & l1) ~= 0 then
+      if (a1 & l1) ~= 0 then
+        l0 = l0 + l2
+      end
+    end
+    l2 = l2 + l2
+    l1 = l1 + 1
+  end
+  if (a0 & 31) ~= 0 then
+    if (a1 & 31) ~= 0 then
+      l0 = l0 + -2147483648
+    end
+  end
+  return l0
+end
+
+function doom_bor32(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  l0 = 0
+  l1 = 0
+  l2 = 1
+  while l1 < 31 do
+    l3 = 0
+    if (a0 & l1) ~= 0 then
+      l3 = 1
+    end
+    if (a1 & l1) ~= 0 then
+      l3 = 1
+    end
+    if l3 ~= 0 then
+      l0 = l0 + l2
+    end
+    l2 = l2 + l2
+    l1 = l1 + 1
+  end
+  l3 = 0
+  if (a0 & 31) ~= 0 then
+    l3 = 1
+  end
+  if (a1 & 31) ~= 0 then
+    l3 = 1
+  end
+  if l3 ~= 0 then
+    l0 = l0 + -2147483648
+  end
+  return l0
+end
+
+function doom_bxor32(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  l0 = 0
+  l1 = 0
+  l2 = 1
+  while l1 < 31 do
+    l3 = 0
+    l4 = 0
+    if (a0 & l1) ~= 0 then
+      l3 = 1
+    end
+    if (a1 & l1) ~= 0 then
+      l4 = 1
+    end
+    if l3 ~= l4 then
+      l0 = l0 + l2
+    end
+    l2 = l2 + l2
+    l1 = l1 + 1
+  end
+  l3 = 0
+  l4 = 0
+  if (a0 & 31) ~= 0 then
+    l3 = 1
+  end
+  if (a1 & 31) ~= 0 then
+    l4 = 1
+  end
+  if l3 ~= l4 then
+    l0 = l0 + -2147483648
+  end
+  return l0
+end
+
+function doom_u32_lt(a0, a1)
+  if a0 < 0 then
+    if a1 >= 0 then
+      return 0
+    end
+  else
+    if a1 < 0 then
+      return 1
+    end
+  end
+  if a0 < a1 then
+    return 1
+  end
+  return 0
+end
+
+function doom_u32_le(a0, a1)
+  if a0 == a1 then
+    return 1
+  end
+  return doom_u32_lt(a0, a1)
+end
+
+-- Compute floor(rem * 65536 / den) for 0 <= rem < den <= INT_MAX.
+-- No intermediate exceeds INT_MAX.
+function doom_frac16_pos(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  l0 = a0
+  l1 = 0
+  l2 = 0
+  l3 = a1 / 2 + a1 % 2
+  while l2 < 16 do
+    l1 = l1 + l1
+    if l0 >= l3 then
+      l0 = l0 - (a1 - l0)
+      l1 = l1 + 1
+    else
+      l0 = l0 + l0
+    end
+    l2 = l2 + 1
+  end
+  return l1
+end
+
+-- Same as doom_frac16_pos with den == 2^31, whose positive magnitude cannot
+-- itself be represented in HCB's signed i32 value type.
+function doom_frac16_den_2p31(a0)
+  local l0
+  local l1
+  local l2
+  l0 = a0
+  l1 = 0
+  l2 = 0
+  while l2 < 16 do
+    l1 = l1 + l1
+    if l0 >= 1073741824 then
+      l0 = l0 - (2147483647 - l0) - 1
+      l1 = l1 + 1
+    else
+      l0 = l0 + l0
+    end
+    l2 = l2 + 1
+  end
+  return l1
+end
+
+-- Magnitude of FixedDiv2(a,b) after FixedDiv's overflow guard has established
+-- that the result fits in signed i32.  a and b are supplied as non-negative
+-- magnitudes, except a_mag_2p31 / b_mag_2p31 represent the one unrepresentable
+-- magnitude 2^31.
+function doom_fixed_div_mag(a0, a1, a2, a3)
+  local l0
+  local l1
+  local l2
+  local l3
+  if a2 ~= 0 then
+    if a3 ~= 0 then
+      return 65536
+    end
+    l0 = 2147483647 / a1
+    l1 = 2147483647 % a1
+    if l1 == a1 - 1 then
+      l0 = l0 + 1
+      l1 = 0
+    else
+      l1 = l1 + 1
+    end
+  else
+    if a3 ~= 0 then
+      l0 = 0
+      l1 = a0
+      l2 = doom_frac16_den_2p31(l1)
+      return l2
+    end
+    l0 = a0 / a1
+    l1 = a0 % a1
+  end
+  l2 = l0 * 65536
+  if l1 ~= 0 then
+    l3 = doom_frac16_pos(l1, a1)
+    l2 = l2 + l3
+  end
+  return l2
+end
+
+-- Equivalent to FixedDiv's saturation guard and FixedDiv2 integer semantics.
+function doom_fixed_div(a0, a1)
+  local l0
+  local l1
+  local l2
+  local l3
+  local l4
+  local l5
+  local l6
+  if a1 == 0 then
+    if a0 < 0 then
+      return -2147483648
+    end
+    return 2147483647
+  end
+
+  l0 = 0
+  l1 = 0
+  l2 = 0
+  l3 = 0
+
+  if a0 == -2147483648 then
+    l0 = 2147483647
+    l2 = 1
+  elseif a0 < 0 then
+    l0 = -a0
+  else
+    l0 = a0
+  end
+
+  if a1 == -2147483648 then
+    l1 = 2147483647
+    l3 = 1
+  elseif a1 < 0 then
+    l1 = -a1
+  else
+    l1 = a1
+  end
+
+  -- FixedDiv overflow test: (abs(a) >> 14) >= abs(b).
+  if l2 ~= 0 then
+    l4 = 131072
+  else
+    l4 = l0 / 16384
+  end
+  if l3 ~= 0 then
+    l5 = 0
+  else
+    l5 = l1
+    if l4 >= l5 then
+      if a0 < 0 then
+        if a1 >= 0 then
+          return -2147483648
+        end
+      else
+        if a1 < 0 then
+          return -2147483648
+        end
+      end
+      return 2147483647
+    end
+  end
+
+  l6 = doom_fixed_div_mag(l0, l1, l2, l3)
+  if a0 < 0 then
+    if a1 >= 0 then
+      return -l6
+    end
+  else
+    if a1 < 0 then
+      return -l6
+    end
+  end
+  return l6
+end
+
+-- HCB integer arithmetic already wraps Int operations at i32.  These helpers
+-- make the RV32 AOT emitter explicit without adding a new numeric model.
+function doom_i32(a0)
+  return a0
+end
+
+function doom_u5(a0)
+  local l0
+  l0 = a0 % 32
+  if l0 < 0 then
+    l0 = l0 + 32
+  end
+  return l0
+end
