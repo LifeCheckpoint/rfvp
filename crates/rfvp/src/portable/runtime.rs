@@ -9,6 +9,7 @@ use crate::host_api::{
 use super::native_bridge::{map_vm_error, PortableNativeBridge};
 use super::parser::{Nls, Parser};
 use super::subsystem::PortableSubsystem;
+use super::values::Variant;
 use super::vm::PortableVm;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +116,26 @@ impl PortableRuntime {
 
     pub fn handle_event(&mut self, event: RfvpEvent) {
         self.subsystem.handle_event(event);
+    }
+
+    /// 取走本帧音频事件（slot, action），供 rfvp-cli 每次 tick 后 emit。
+    pub fn drain_audio_events(&mut self) -> Vec<(u32, &'static str)> {
+        self.subsystem.drain_audio_events()
+    }
+
+    /// 跳到指定代码地址并重启主线程（保留全局变量），供编辑器 label 断点跳转。
+    pub fn jump_to(&mut self, addr: u32) {
+        self.vm.jump_main(addr);
+    }
+
+    /// 读取全局变量（协议 get_g）。
+    pub fn get_global(&self, index: u16) -> Variant {
+        self.vm.get_global(index)
+    }
+
+    /// 写入全局变量（协议 set_g）。
+    pub fn set_global(&mut self, index: u16, value: Variant) {
+        self.vm.set_global(index, value);
     }
 
     fn subsystem_has_render_state(&self) -> bool {

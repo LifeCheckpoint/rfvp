@@ -194,6 +194,21 @@ impl PortableVm {
         self.thread_break
     }
 
+    /// 重启主线程到指定地址（保留全局变量），供编辑器「跳到 label 断点」使用。
+    pub fn jump_main(&mut self, addr: u32) {
+        self.thread_start(0, addr);
+    }
+
+    /// 读取全局变量（协议 get_g）。
+    pub fn get_global(&self, key: u16) -> Variant {
+        self.globals.get(key)
+    }
+
+    /// 写入全局变量（协议 set_g）。
+    pub fn set_global(&mut self, key: u16, value: Variant) {
+        self.globals.set(key, value);
+    }
+
     fn run_one_context<H: crate::host_api::RfvpHost>(
         &mut self,
         tid: u32,

@@ -22,6 +22,8 @@ pub struct PortableSubsystem {
     window_mode: i32,
     exit_mode: i32,
     master_volume: i32,
+    /// 本帧音频事件队列（slot, action），由 rfvp-cli 每次 tick 后 drain 并 emit。
+    audio_events: Vec<(u32, &'static str)>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +122,7 @@ impl PortableSubsystem {
             window_mode: 0,
             exit_mode: 0,
             master_volume: 100,
+            audio_events: Vec::new(),
         }
     }
 
@@ -390,6 +393,7 @@ impl PortableSubsystem {
         };
         let bytes = read_resource(host, &path)?;
         self.audio_slots[slot].path = Some(path);
+        self.audio_events.push((slot as u32, "load"));
         host.audio().destroy_stream(AudioStreamId(slot as u32));
         host.audio().create_stream(
             AudioStreamId(slot as u32),
@@ -413,6 +417,7 @@ impl PortableSubsystem {
             return Ok(Variant::Nil);
         }
         self.audio_slots[slot].playing = true;
+        self.audio_events.push((slot as u32, "play"));
         host.audio()
             .play(AudioStreamId(slot as u32), self.audio_params(slot), 0)?;
         Ok(Variant::Nil)
@@ -424,8 +429,14 @@ impl PortableSubsystem {
         };
         let fade_ms = arg_int(args, 1).unwrap_or(0).clamp(0, 300_000) as u32;
         self.audio_slots[slot].playing = false;
+        self.audio_events.push((slot as u32, "stop"));
         host.audio().stop(AudioStreamId(slot as u32), fade_ms)?;
         Ok(Variant::Nil)
+    }
+
+    /// 取走并清空本帧音频事件队列（供 rfvp-cli emit audio 事件）。
+    pub fn drain_audio_events(&mut self) -> Vec<(u32, &'static str)> {
+        core::mem::take(&mut self.audio_events)
     }
 
     fn audio_params(&self, slot: usize) -> AudioParams {
