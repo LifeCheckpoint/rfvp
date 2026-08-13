@@ -173,13 +173,9 @@ impl<'a, H: RfvpHost> PortableNativeBridge<'a, H> {
                 level: RfvpLogLevel::Debug,
                 message: format!("{:?}", args),
             }),
-            other => Ok(NativeSyscall::Unsupported {
-                reason: format!(
-                    "no no_std native bridge implementation for syscall `{}` with {} argument(s)",
-                    other,
-                    args.len()
-                ),
-            }),
+            // 无头预览兜底：未实现的演出类 syscall（文本/颜色/运动/光标等）按 no-op 处理，
+            // 返回 Nil 以让 VM 继续推进而非中断线程；控制流与渲染/音频类已在前面显式处理。
+            other => Ok(NativeSyscall::Immediate(Variant::Nil)),
         }
     }
 }
