@@ -857,6 +857,10 @@ compile_error!("feature `no_std` is an independent core-library build and must n
 
 pub mod host_api;
 
+/// 便携运行时（headless rfvp-cli 封装用）：boot / tick / render + prim 子系统。
+#[cfg(not(feature = "no_std"))]
+pub mod portable;
+
 #[cfg(feature = "no_std")]
 pub mod no_std_core;
 

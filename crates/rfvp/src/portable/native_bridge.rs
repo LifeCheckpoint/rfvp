@@ -121,7 +121,7 @@ impl<'a, H: RfvpHost> PortableNativeBridge<'a, H> {
                 Ok(Variant::Nil)
             }
             NativeSyscall::AudioPlay { id, params } => {
-                self.host.audio().play(id, params).map_err(host_error)?;
+                self.host.audio().play(id, params, 0).map_err(host_error)?;
                 Ok(Variant::Nil)
             }
             NativeSyscall::AudioStop { id, fade_ms } => {

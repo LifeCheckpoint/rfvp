@@ -414,7 +414,7 @@ impl PortableSubsystem {
         }
         self.audio_slots[slot].playing = true;
         host.audio()
-            .play(AudioStreamId(slot as u32), self.audio_params(slot))?;
+            .play(AudioStreamId(slot as u32), self.audio_params(slot), 0)?;
         Ok(Variant::Nil)
     }
 
