@@ -11,6 +11,12 @@ use crate::vm_runner::{VmRunner, VmTickReport};
 /// Events delivered from the main thread to the VM thread.
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
+    /// Restart the main script thread at `addr` (editor label jump).
+    Jump {
+        addr: u32,
+        done: Sender<()>,
+    },
+
     /// Advance the script VM by one frame worth of time.
     Frame { frame_ms: u64 },
 
@@ -72,6 +78,10 @@ impl VmWorker {
                 while let Ok(ev) = rx.recv() {
                     match ev {
                         EngineEvent::Stop => break,
+                        EngineEvent::Jump { addr, done } => {
+                            vm.start_main(addr);
+                            let _ = done.send(());
+                        }
                         EngineEvent::Frame { frame_ms } => {
                             // Tick the VM with a short critical section.
                             // The main thread should avoid holding the write lock during AboutToWait.
@@ -160,6 +170,16 @@ impl VmWorker {
     pub fn send_frame_ms(&self, frame_ms: u64) {
         // Ignore send errors during shutdown.
         let _ = self.tx.send(EngineEvent::Frame { frame_ms });
+    }
+
+    #[inline]
+    pub fn jump_sync(&self, addr: u32) {
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let _ = self.tx.send(EngineEvent::Jump {
+            addr,
+            done: done_tx,
+        });
+        let _ = done_rx.recv();
     }
 
     #[inline]

@@ -861,6 +861,11 @@ pub mod host_api;
 #[cfg(not(feature = "no_std"))]
 pub mod portable;
 
+/// 全引擎 headless 预览宿主（subsystem + vm_worker + script + soft_render）。
+/// 面向 Electron 嵌入（Phase 0 spike）：从字节 boot、逐帧执行并输出 RGBA 帧。
+#[cfg(all(not(feature = "no_std"), feature = "soft-render-core"))]
+pub mod preview_host;
+
 #[cfg(feature = "no_std")]
 pub mod no_std_core;
 
