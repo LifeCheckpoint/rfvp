@@ -124,6 +124,7 @@ impl BgmPlayer {
     pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
         let slot = slot as usize;
         let name = name.into();
+        eprintln!("[rfvp-bgm] load_named slot={} name={}", slot, name);
         let stream = vfs
             .open_media_source(&name)
             .with_context(|| format!("open BGM stream from vfs: {}", name))?;
@@ -131,6 +132,7 @@ impl BgmPlayer {
             .with_context(|| format!("decode BGM header from vfs stream: {}", name))?;
         self.bgm_names[slot] = Some(name.clone());
         self.bgm_sources[slot] = Some(BgmSource::VfsPath(name));
+        eprintln!("[rfvp-bgm] load_named ok slot={}", slot);
         Ok(())
     }
 
@@ -203,6 +205,7 @@ impl BgmPlayer {
         };
 
         log::info!("Playing BGM slot {}", slot);
+        eprintln!("[rfvp-bgm] play slot={} repeat={}", slot, repeat);
 
         #[cfg(not(target_arch = "wasm32"))]
         {

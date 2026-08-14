@@ -38,6 +38,10 @@ pub struct VmTickReport {
     pub forced_yield: bool,
     /// Reserved for compatibility with the existing host/worker interface.
     pub forced_yield_contexts: u32,
+    /// Program counter of the main script context (context 0) after this tick.
+    /// Used by the editor preview host to map the runtime position back to
+    /// source label nodes.
+    pub current_pc: usize,
 }
 
 impl VmRunner {
@@ -164,7 +168,7 @@ impl VmRunner {
         let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
         uefi_vm_stage!("[UEFI] VmRunner::tick after dissolve state");
 
-        let report = VmTickReport::default();
+        let mut report = VmTickReport::default();
 
         let total = self.tm.total_contexts() as u32;
         uefi_vm_stage!("[UEFI] VmRunner::tick total_contexts={}", total);
@@ -227,6 +231,10 @@ impl VmRunner {
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }
+
+        // Expose the main context (context 0) program counter to the host so the
+        // editor can map the runtime position back to a source label.
+        report.current_pc = self.tm.contexts[0].get_pc();
 
         Ok(report)
     }

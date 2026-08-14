@@ -58,6 +58,8 @@ pub struct PreviewTick {
     pub frame_ms: u64,
     /// Whether the main script thread (context 0) has run to completion.
     pub main_thread_exited: bool,
+    /// Program counter of the main script context (context 0) after this tick.
+    pub current_pc: usize,
 }
 
 /// A headless host that boots and advances the full engine on the caller's thread.
@@ -94,6 +96,10 @@ impl PreviewHost {
         let virtual_size = parser.get_screen_size();
 
         let mut world = boxed_default_game_data();
+        #[cfg(feature = "audio")]
+        eprintln!(
+            "[rfvp-preview] audio backend: kira (feature=audio); AudioManager::new opened the output stream"
+        );
         world.vfs = match Vfs::new(nls) {
             Ok(vfs) => vfs,
             Err(e) => {
@@ -167,7 +173,7 @@ impl PreviewHost {
         if notify_dissolve_done {
             self.vm_worker.send_dissolve_done_sync();
         }
-        let _report = self.vm_worker.send_frame_ms_sync(frame_ms);
+        let report = self.vm_worker.send_frame_ms_sync(frame_ms);
         self.finish_frame();
 
         {
@@ -187,6 +193,7 @@ impl PreviewHost {
         Ok(PreviewTick {
             frame_ms,
             main_thread_exited,
+            current_pc: report.current_pc,
         })
     }
 
