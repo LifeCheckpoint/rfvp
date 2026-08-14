@@ -105,6 +105,13 @@ impl PreviewHost {
         world.set_can_fullscreen(false);
         world.set_window(EngineWindow::new(virtual_size, 1.0));
 
+        // 完整引擎的文本由 text_manager + 字体 glyph 渲染（soft_render 的
+        // PrimType::PrimTypeText → draw_text_prim），必须扫描字体目录并初始化
+        // fontface manager，否则帧内不会出现任何文字。失败仅告警不中断 boot。
+        if let Err(e) = world.fontface_manager.init_fontface() {
+            eprintln!("PreviewHost: init_fontface failed (text may be missing): {:#}", e);
+        }
+
         GLOBAL.lock().unwrap().init_with(
             parser.get_non_volatile_global_count(),
             parser.get_volatile_global_count(),
