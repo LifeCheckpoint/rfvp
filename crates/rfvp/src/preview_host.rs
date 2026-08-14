@@ -251,21 +251,16 @@ impl PreviewHost {
                     }
                 }
                 RfvpEvent::PointerUp { button, x, y } => {
+                    // 点击由调用方按真实 down/up 序列注入（`advance`/`skip` 在
+                    // rfvp-cli 侧显式合成 down+up）。这里不再合成 down 沿，避免
+                    // 一次点击被计作两次按下沿（会让 InputGetDown 等待环双推进）。
                     gd.inputs_manager.set_mouse_in(true);
                     gd.inputs_manager.notify_mouse_move(x, y);
                     match button {
                         PointerButton::Left => {
-                            // The preview protocol delivers a click as a single
-                            // pointer_up (both `advance` and stage taps). The base
-                            // script wait loops poll InputGetDown (mouse-down edge),
-                            // which a lone pointer_up never sets, so the VM would
-                            // stall on the first dialog/msg wait. Synthesize the
-                            // missing down edge so a click advances the script.
-                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
                             gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
                         }
                         PointerButton::Right => {
-                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
                             gd.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
                         }
                         PointerButton::Middle | PointerButton::Other(_) => {}
