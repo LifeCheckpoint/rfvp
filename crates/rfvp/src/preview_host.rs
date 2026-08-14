@@ -21,6 +21,7 @@ use crate::{
     subsystem::{
         anzu_scene::AnzuScene,
         resources::{
+            color_manager::ColorItem,
             input_manager::KeyCode,
             motion_manager::DissolveType,
             thread_manager::ThreadManager,
@@ -110,6 +111,15 @@ impl PreviewHost {
         // fontface manager，否则帧内不会出现任何文字。失败仅告警不中断 boot。
         if let Err(e) = world.fontface_manager.init_fontface() {
             eprintln!("PreviewHost: init_fontface failed (text may be missing): {:#}", e);
+        }
+
+        // 文本颜色来自 ColorManager 调色板；无头 boot 跳过了游戏启动流程（标题 /
+        // Logo），调色板除 1=黑、2=白 外全部是透明（a=0）。旁白 dia 内部会按
+        // TextColor 调用解析调色板，透明色会让 text_manager 光栅化出不可见 glyph。
+        // 这里把整个调色板初始化为不透明白色，保证 headless 帧内文字可见。
+        let white = ColorItem::white();
+        for id in 0..=255u8 {
+            *world.motion_manager.color_manager.get_entry_mut(id) = white.clone();
         }
 
         GLOBAL.lock().unwrap().init_with(
