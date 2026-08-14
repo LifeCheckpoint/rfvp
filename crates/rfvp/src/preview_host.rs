@@ -200,8 +200,15 @@ impl PreviewHost {
 
     /// Inject a host input event into [`GameData::inputs_manager`].
     ///
-    /// Phase 0 only implements the pointer subset (down/up/move); keyboard and
-    /// touch dispatch are left as a Phase 1 TODO.
+    /// This mirrors `subsystem::event_handler::update_input_events` (the winit-
+    /// gated input mapper) without the winit layer (headless): pointer
+    /// coordinates are already in virtual-resolution space, so we translate
+    /// [`RfvpEvent`] directly onto the engine's non-feature-gated
+    /// `InputManager::notify_*` methods and then wake the VM with a zero-delta
+    /// input signal.
+    ///
+    /// Phase 2 implements the pointer subset (down/up/move); keyboard / touch /
+    /// wheel / quit dispatch are left as follow-up TODO.
     pub fn handle_event(&mut self, event: RfvpEvent) {
         {
             let mut gd = gd_write(&self.game_data);
@@ -209,19 +216,35 @@ impl PreviewHost {
                 RfvpEvent::PointerDown { button, x, y } => {
                     gd.inputs_manager.set_mouse_in(true);
                     gd.inputs_manager.notify_mouse_move(x, y);
-                    gd.inputs_manager.notify_mouse_down(pointer_keycode(button));
+                    match button {
+                        PointerButton::Left => {
+                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
+                        }
+                        PointerButton::Right => {
+                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
+                        }
+                        PointerButton::Middle | PointerButton::Other(_) => {}
+                    }
                 }
                 RfvpEvent::PointerUp { button, x, y } => {
                     gd.inputs_manager.set_mouse_in(true);
                     gd.inputs_manager.notify_mouse_move(x, y);
-                    gd.inputs_manager.notify_mouse_up(pointer_keycode(button));
+                    match button {
+                        PointerButton::Left => {
+                            gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
+                        }
+                        PointerButton::Right => {
+                            gd.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
+                        }
+                        PointerButton::Middle | PointerButton::Other(_) => {}
+                    }
                 }
-                RfvpEvent::PointerMove { x, y, .. } => {
-                    gd.inputs_manager.set_mouse_in(true);
+                RfvpEvent::PointerMove { x, y, in_screen } => {
                     gd.inputs_manager.notify_mouse_move(x, y);
+                    gd.inputs_manager.set_mouse_in(in_screen);
                 }
                 _ => {
-                    // TODO(Phase 1): keyboard / touch / wheel / quit dispatch.
+                    // TODO(Phase 3): keyboard / touch / wheel / quit dispatch.
                 }
             }
         }
@@ -298,14 +321,6 @@ impl PreviewHost {
             .apply_scene_action(SceneAction::LateUpdate, gd);
 
         gd.set_current_thread(0);
-    }
-}
-
-fn pointer_keycode(button: PointerButton) -> KeyCode {
-    match button {
-        PointerButton::Left => KeyCode::LeftClick,
-        PointerButton::Right => KeyCode::RightClick,
-        PointerButton::Middle | PointerButton::Other(_) => KeyCode::LeftClick,
     }
 }
 
