@@ -255,9 +255,17 @@ impl PreviewHost {
                     gd.inputs_manager.notify_mouse_move(x, y);
                     match button {
                         PointerButton::Left => {
+                            // The preview protocol delivers a click as a single
+                            // pointer_up (both `advance` and stage taps). The base
+                            // script wait loops poll InputGetDown (mouse-down edge),
+                            // which a lone pointer_up never sets, so the VM would
+                            // stall on the first dialog/msg wait. Synthesize the
+                            // missing down edge so a click advances the script.
+                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
                             gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
                         }
                         PointerButton::Right => {
+                            gd.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
                             gd.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
                         }
                         PointerButton::Middle | PointerButton::Other(_) => {}
